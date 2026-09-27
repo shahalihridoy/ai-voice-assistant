@@ -12,7 +12,7 @@ const questions = asked
 
 const main = async (): Promise<void> => {
   for (const question of questions) {
-    const result = await answerQuestion(question);
+    const result = await answerQuestion([{ role: "user", content: question }]);
     console.log("Answer");
     console.log(result.answer);
     console.log("Sources");

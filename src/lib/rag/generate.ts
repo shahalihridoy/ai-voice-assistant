@@ -1,16 +1,16 @@
 import { completeChat } from "@/lib/llm/client";
 import { buildPrompt } from "@/lib/rag/prompt";
-import type { RetrievedChunk } from "@/types/rag";
+import type { ChatTurn, RetrievedChunk } from "@/types/rag";
 
 export const generateAnswer = async (
-  question: string,
+  messages: ChatTurn[],
   context: RetrievedChunk[],
 ): Promise<string> => {
   if (context.length === 0) {
     throw new Error("Cannot generate an answer without retrieved context");
   }
 
-  const prompt = buildPrompt(question, context);
+  const prompt = buildPrompt(messages, context);
   console.log("Prompt generated");
   console.log(prompt.system);
   console.log(prompt.user);

@@ -17,7 +17,7 @@ const pickEnglishVoice = (
   return english.find((voice) => voice.localService) ?? english[0];
 };
 
-const Answer = ({ answer, sources, onSpeechError }: AnswerProps) => {
+const Answer = ({ answer, onSpeechError }: AnswerProps) => {
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   useEffect(() => {
@@ -72,31 +72,12 @@ const Answer = ({ answer, sources, onSpeechError }: AnswerProps) => {
   };
 
   return (
-    <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
-      <h2 className="text-sm font-medium tracking-wide text-teal-800">Answer</h2>
-      <p className="mt-3 whitespace-pre-wrap text-base leading-7 text-stone-900">{answer}</p>
-      <button type="button" onClick={speak} className={`${secondaryButtonClass} mt-4`}>
+    <article className="max-w-[85%] self-start rounded-2xl rounded-bl-md border border-stone-200 bg-white px-4 py-3 shadow-sm">
+      <p className="whitespace-pre-wrap text-base leading-7 text-stone-900">{answer}</p>
+      <button type="button" onClick={speak} className={`${secondaryButtonClass} mt-3`}>
         Read aloud
       </button>
-      {sources.length > 0 ? (
-        <>
-          <h2 className="mt-6 text-sm font-medium tracking-wide text-stone-500">Sources</h2>
-          <ul className="mt-3 divide-y divide-stone-100">
-            {sources.map((source) => (
-              <li
-                key={`${source.source}-${source.score}`}
-                className="flex items-center justify-between gap-3 py-2 text-sm"
-              >
-                <span className="font-medium text-stone-800">{source.source}</span>
-                <span className="shrink-0 rounded-full bg-stone-100 px-2.5 py-1 text-xs text-stone-600">
-                  similarity {source.score.toFixed(2)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-    </section>
+    </article>
   );
 };
 

@@ -9,8 +9,13 @@ export type RetrievedChunk = Chunk & {
   score: number;
 };
 
+export type ChatTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 export type AskRequest = {
-  question: string;
+  messages: ChatTurn[];
 };
 
 export type AskSource = {

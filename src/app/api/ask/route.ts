@@ -2,17 +2,38 @@ import { callChosenApi } from "@/lib/call-clinic-api";
 import { publicErrorMessage } from "@/lib/env";
 import { selectClinicTool } from "@/lib/llm/client";
 import { answerQuestion } from "@/lib/rag/rag";
-import type { AskRequest } from "@/types/rag";
+import type { AskRequest, ChatTurn } from "@/types/rag";
+
+const MAX_CHAT_MESSAGES = 40;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readQuestion = (value: unknown): AskRequest | undefined => {
-  if (!isRecord(value) || typeof value.question !== "string") {
+const isChatTurn = (value: unknown): value is ChatTurn =>
+  isRecord(value) &&
+  (value.role === "user" || value.role === "assistant") &&
+  typeof value.content === "string" &&
+  value.content.trim().length > 0;
+
+const readMessages = (value: unknown): AskRequest | undefined => {
+  if (!isRecord(value) || !Array.isArray(value.messages) || value.messages.length === 0) {
     return undefined;
   }
 
-  return { question: value.question };
+  if (!value.messages.every(isChatTurn)) {
+    return undefined;
+  }
+
+  const messages = value.messages.slice(-MAX_CHAT_MESSAGES).map((message) => ({
+    role: message.role,
+    content: message.content.trim(),
+  }));
+
+  if (messages[messages.length - 1]?.role !== "user") {
+    return undefined;
+  }
+
+  return { messages };
 };
 
 export const POST = async (request: Request): Promise<Response> => {
@@ -23,24 +44,19 @@ export const POST = async (request: Request): Promise<Response> => {
     return Response.json({ error: "Question must be a string" }, { status: 400 });
   }
 
-  const parsed = readQuestion(body);
+  const parsed = readMessages(body);
   if (!parsed) {
     return Response.json({ error: "Question must be a string" }, { status: 400 });
   }
 
-  const question = parsed.question.trim();
-  if (!question) {
-    return Response.json({ error: "Empty question" }, { status: 400 });
-  }
-
   try {
-    const choice = await selectClinicTool(question);
+    const choice = await selectClinicTool(parsed.messages);
     const action = await callChosenApi(choice, new URL(request.url).origin);
     if (action) {
       return Response.json(action);
     }
 
-    const result = await answerQuestion(question);
+    const result = await answerQuestion(parsed.messages);
     return Response.json(result);
   } catch (error) {
     return Response.json(

@@ -1,5 +1,6 @@
 import { LLM_MAX_TOKENS, LLM_MODEL, LLM_TEMPERATURE } from "@/lib/config";
 import { publicErrorMessage, requireEnv } from "@/lib/env";
+import type { ChatTurn } from "@/types/rag";
 
 const LLM_URL = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -21,13 +22,14 @@ const clinicTools = [
     function: {
       name: "getHospitalBill",
       description:
-        "Look up a hospital bill. Use this when the user asks for a bill. Pass the patient id from their message, or an empty string if they did not give one.",
+        "Look up a hospital bill. Use this when the latest message asks for a bill. Pass the patient id from the conversation. If they say \"this patient\" or otherwise omit it, reuse the patient id from an earlier message. Pass an empty string only when the conversation never gives one.",
       parameters: {
         type: "object",
         properties: {
           patientId: {
             type: "string",
-            description: "Patient id from the user's message. Empty if they did not give one.",
+            description:
+              "Patient id from the conversation. Reuse an earlier id when the latest message refers to that patient. Empty only if none was given.",
           },
         },
         required: ["patientId"],
@@ -39,13 +41,14 @@ const clinicTools = [
     function: {
       name: "getPatientDetails",
       description:
-        "Look up a patient's name, age, and problem. Use this when the user asks for patient details. Pass the patient id from their message, or an empty string if they did not give one.",
+        "Look up a patient's name, age, and problem. Use this when the latest message asks for patient details. Pass the patient id from the conversation. If they say \"this patient\" or otherwise omit it, reuse the patient id from an earlier message. Pass an empty string only when the conversation never gives one.",
       parameters: {
         type: "object",
         properties: {
           patientId: {
             type: "string",
-            description: "Patient id from the user's message. Empty if they did not give one.",
+            description:
+              "Patient id from the conversation. Reuse an earlier id when the latest message refers to that patient. Empty only if none was given.",
           },
         },
         required: ["patientId"],
@@ -54,12 +57,41 @@ const clinicTools = [
   },
 ] as const;
 
-const ROUTER_SYSTEM = `You route clinic chat messages to an API.
-Call generateSerialNumber when the user wants a serial number.
-Call getHospitalBill when the user wants a hospital bill.
-Call getPatientDetails when the user wants patient details.
-Copy the patient id from the message. If they did not give one, pass an empty string.
+const ROUTER_SYSTEM = `You route the latest clinic chat message to an API.
+Read the whole conversation. Earlier messages supply details the latest message leaves out.
+If the latest message refers to a patient already mentioned, such as "this patient", "their bill", or "the same id", reuse that patient id.
+Call generateSerialNumber when the latest message wants a serial number.
+Call getHospitalBill when the latest message wants a hospital bill.
+Call getPatientDetails when the latest message wants patient details.
+Copy the patient id from the conversation. If none was given, pass an empty string.
 For questions about clinic hours, departments, doctors, or appointments, do not call a tool.`;
+
+const PATIENT_ID_PATTERNS = [
+  /\bpatient\s+id\s*[:#]?\s*([A-Za-z0-9-]+)\b/gi,
+  /\bid\s*[:#]?\s*(\d+)\b/gi,
+  /\bpatient\s+(\d+)\b/gi,
+];
+
+const lastPatientId = (content: string): string => {
+  for (const pattern of PATIENT_ID_PATTERNS) {
+    pattern.lastIndex = 0;
+    const id = [...content.matchAll(pattern)].at(-1)?.[1];
+    if (id) {
+      return id;
+    }
+  }
+  return "";
+};
+
+const patientIdFromConversation = (messages: ChatTurn[]): string => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const id = lastPatientId(messages[index].content);
+    if (id) {
+      return id;
+    }
+  }
+  return "";
+};
 
 export type ClinicToolCall =
   | { name: "generateSerialNumber" }
@@ -129,7 +161,7 @@ const readToolCall = (message: Record<string, unknown>): ClinicToolCall => {
 };
 
 const requestChat = async (body: {
-  messages: Array<{ role: "system" | "user"; content: string }>;
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
   tools?: typeof clinicTools;
   tool_choice?: "auto";
 }): Promise<unknown> => {
@@ -199,15 +231,20 @@ export const completeChat = async (system: string, user: string): Promise<string
   return readAnswer(parsed);
 };
 
-export const selectClinicTool = async (question: string): Promise<ClinicToolCall> => {
+export const selectClinicTool = async (messages: ChatTurn[]): Promise<ClinicToolCall> => {
   const parsed = await requestChat({
-    messages: [
-      { role: "system", content: ROUTER_SYSTEM },
-      { role: "user", content: question },
-    ],
+    messages: [{ role: "system", content: ROUTER_SYSTEM }, ...messages],
     tools: clinicTools,
     tool_choice: "auto",
   });
 
-  return readToolCall(readMessage(parsed));
+  const choice = readToolCall(readMessage(parsed));
+  if (
+    (choice.name === "getHospitalBill" || choice.name === "getPatientDetails") &&
+    !choice.patientId
+  ) {
+    return { ...choice, patientId: patientIdFromConversation(messages) };
+  }
+
+  return choice;
 };
